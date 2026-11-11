@@ -8,30 +8,46 @@ import { Label } from '@/components/ui/label'
 import { useAuth } from '@/lib/auth'
 import { appRootUrl, supabase } from '@/lib/supabase'
 
+function friendlyError(message: string) {
+  if (/signup|not allowed|not found/i.test(message)) return "This email hasn't been invited to Reels Hub."
+  if (/rate limit|security purposes/i.test(message)) return 'Too many emails sent. Wait a minute and try again.'
+  if (/expired|invalid/i.test(message)) return 'That code is wrong or has expired. Check the newest email, or send a new code.'
+  return message
+}
+
 export default function Login() {
   const { session, loading, linkError } = useAuth()
   const [email, setEmail] = useState('')
-  const [sending, setSending] = useState(false)
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState<string | null>(linkError)
 
   if (!loading && session) return <Navigate to="/" replace />
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault()
-    setSending(true)
+  async function sendCode(e?: FormEvent) {
+    e?.preventDefault()
+    setBusy(true)
     setError(null)
+    // The same email contains a 6-digit code and a link; either one signs you in.
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: { shouldCreateUser: false, emailRedirectTo: appRootUrl() },
     })
-    setSending(false)
-    if (error) {
-      // Supabase returns a "signups not allowed" style error for emails that weren't invited.
-      setError(/signup|not allowed|not found/i.test(error.message) ? "This email hasn't been invited to Reels Hub." : error.message)
-      return
-    }
+    setBusy(false)
+    if (error) return setError(friendlyError(error.message))
+    setCode('')
     setSent(true)
+  }
+
+  async function verifyCode(e: FormEvent) {
+    e.preventDefault()
+    setBusy(true)
+    setError(null)
+    const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'email' })
+    setBusy(false)
+    if (error) setError(friendlyError(error.message))
+    // On success, onAuthStateChange sets the session and this page redirects to the Dashboard.
   }
 
   return (
@@ -39,22 +55,51 @@ export default function Login() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>Reels Hub</CardTitle>
-          <CardDescription>Sign in with the email you were invited with.</CardDescription>
+          <CardDescription>
+            {sent ? 'Enter the code from your email.' : 'Sign in with the email you were invited with.'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {sent ? (
-            <div className="flex flex-col items-center gap-2 py-4 text-center text-sm">
-              <MailCheck className="size-8 text-primary" />
-              <p>
-                Check <span className="font-medium">{email}</span> for a sign-in link.
-              </p>
-              <p className="text-muted-foreground">Open it in this same browser.</p>
-              <Button variant="link" size="sm" onClick={() => setSent(false)}>
-                Use a different email
+            <form onSubmit={verifyCode} className="flex flex-col gap-4">
+              <div className="flex items-start gap-2 text-sm">
+                <MailCheck className="mt-0.5 size-4 shrink-0 text-primary" />
+                <p>
+                  We sent a sign-in code to <span className="font-medium">{email}</span>.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="code">Code</Label>
+                <Input
+                  id="code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{6,10}"
+                  maxLength={10}
+                  required
+                  autoFocus
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                  placeholder="123456"
+                  className="text-center text-lg tracking-[0.4em]"
+                />
+              </div>
+              {error && <p className="text-sm text-destructive">{error}</p>}
+              <Button type="submit" disabled={busy || code.length < 6}>
+                {busy && <Loader2 className="size-4 animate-spin" />}
+                Sign in
               </Button>
-            </div>
+              <div className="flex justify-between text-sm">
+                <Button type="button" variant="link" size="sm" className="px-0" onClick={() => { setSent(false); setError(null) }}>
+                  Use a different email
+                </Button>
+                <Button type="button" variant="link" size="sm" className="px-0" disabled={busy} onClick={() => sendCode()}>
+                  Send a new code
+                </Button>
+              </div>
+            </form>
           ) : (
-            <form onSubmit={onSubmit} className="flex flex-col gap-4">
+            <form onSubmit={sendCode} className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -68,9 +113,9 @@ export default function Login() {
                 />
               </div>
               {error && <p className="text-sm text-destructive">{error}</p>}
-              <Button type="submit" disabled={sending}>
-                {sending && <Loader2 className="size-4 animate-spin" />}
-                Send magic link
+              <Button type="submit" disabled={busy}>
+                {busy && <Loader2 className="size-4 animate-spin" />}
+                Send sign-in code
               </Button>
             </form>
           )}
