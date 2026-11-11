@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { ExternalLink, Loader2, Play } from 'lucide-react'
+import { Check, Loader2, Play } from 'lucide-react'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
@@ -9,6 +9,8 @@ import { must, thumbUrl, type Creator, type CreatorStats, type OutlierReel } fro
 import { fmtAgo, fmtDuration, fmtNum } from '@/lib/format'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
+import { useSelection } from '@/lib/selection'
+import { AnalyzeBar } from '@/components/AnalyzeBar'
 
 type Filters = {
   minFollowers: string
@@ -213,6 +215,7 @@ export default function Outliers() {
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
         {reels.data?.map((r) => <ReelCard key={r.id} r={r} kevinMedian={kevin?.median ?? null} />)}
       </div>
+      <AnalyzeBar />
     </div>
   )
 }
@@ -221,12 +224,17 @@ function ReelCard({ r, kevinMedian }: { r: OutlierReel; kevinMedian: number | nu
   const hook = (r.caption ?? '').split('\n').find((l) => l.trim()) ?? ''
   const src = thumbUrl(r)
   const vsKevin = kevinMedian && r.views ? r.views / kevinMedian : null
+  const sel = useSelection()
+  const selected = sel.outliers.includes(r.id)
   return (
     <a
       href={r.url ?? `https://www.instagram.com/reel/${r.shortcode}/`}
       target="_blank"
       rel="noreferrer"
-      className="group flex flex-col overflow-hidden rounded-lg border bg-card text-card-foreground transition-shadow hover:shadow-md"
+      className={cn(
+        'group flex flex-col overflow-hidden rounded-lg border bg-card text-card-foreground transition-shadow hover:shadow-md',
+        selected && 'ring-2 ring-primary',
+      )}
     >
       <div className="relative aspect-[9/16] bg-muted">
         {src && <img src={src} alt="" loading="lazy" className="absolute inset-0 size-full object-cover" />}
@@ -240,7 +248,20 @@ function ReelCard({ r, kevinMedian }: { r: OutlierReel; kevinMedian: number | nu
           </span>
           <span className="tabular-nums">{fmtDuration(r.duration_sec)}</span>
         </div>
-        <ExternalLink className="absolute top-2 right-2 size-4 text-white opacity-0 drop-shadow transition-opacity group-hover:opacity-100" />
+        <button
+          type="button"
+          title={selected ? 'Remove from AI selection' : 'Select for AI analysis'}
+          onClick={(e) => {
+            e.preventDefault() // don't open the reel
+            sel.toggle('outliers', r.id)
+          }}
+          className={cn(
+            'absolute top-2 right-2 flex size-6 items-center justify-center rounded-md border-2 border-white shadow transition-opacity',
+            selected ? 'bg-primary opacity-100' : 'bg-black/30 opacity-70 group-hover:opacity-100',
+          )}
+        >
+          {selected && <Check className="size-4 text-primary-foreground" />}
+        </button>
       </div>
       <div className="flex flex-1 flex-col gap-1 p-2.5 text-xs">
         <div className="flex items-center justify-between gap-2">

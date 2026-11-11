@@ -9,7 +9,8 @@ import Outliers from '@/pages/Outliers'
 import Dashboard from '@/pages/Dashboard'
 import Insights from '@/pages/Insights'
 import Publish from '@/pages/Publish'
-import { AI } from '@/pages'
+import AI from '@/pages/AI'
+import { SelectionProvider } from '@/lib/selection'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 60_000, refetchOnWindowFocus: false } },
@@ -20,6 +21,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <SelectionProvider>
         <HashRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
@@ -36,6 +38,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </HashRouter>
+        </SelectionProvider>
       </AuthProvider>
     </QueryClientProvider>
   )

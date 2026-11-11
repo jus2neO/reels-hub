@@ -9,6 +9,8 @@ import { invoke, must, thumbUrl, type KevinMedia } from '@/lib/api'
 import { fmtAgo, fmtDuration, fmtNum } from '@/lib/format'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
+import { useSelection } from '@/lib/selection'
+import { AnalyzeBar } from '@/components/AnalyzeBar'
 
 type Row = KevinMedia & {
   views: number | null
@@ -37,6 +39,7 @@ export default function Insights() {
   const qc = useQueryClient()
   const [sort, setSort] = useState<keyof Row>('posted_at')
   const [filter, setFilter] = useState<'all' | 'trial' | 'regular'>('all')
+  const sel = useSelection()
 
   const media = useQuery({
     queryKey: ['kevin_media'],
@@ -171,6 +174,7 @@ export default function Insights() {
           <table className="w-full text-sm">
             <thead className="border-b bg-muted/50 text-xs text-muted-foreground">
               <tr>
+                <th className="w-10 pl-4" title="Select for AI analysis" />
                 <th className="px-4 py-2.5 text-left font-medium">Reel</th>
                 {COLS.map((c) => (
                   <th key={c.key} className="px-3 py-2.5 text-right font-medium whitespace-nowrap">
@@ -185,14 +189,14 @@ export default function Insights() {
             <tbody>
               {media.isLoading && (
                 <tr>
-                  <td colSpan={COLS.length + 1} className="py-8 text-center">
+                  <td colSpan={COLS.length + 2} className="py-8 text-center">
                     <Loader2 className="mx-auto size-4 animate-spin text-muted-foreground" />
                   </td>
                 </tr>
               )}
               {!media.isLoading && shown.length === 0 && (
                 <tr>
-                  <td colSpan={COLS.length + 1} className="px-4 py-8 text-center text-muted-foreground">
+                  <td colSpan={COLS.length + 2} className="px-4 py-8 text-center text-muted-foreground">
                     No Reels yet. Click Sync now once Kevin's Instagram is connected.
                   </td>
                 </tr>
@@ -200,7 +204,16 @@ export default function Insights() {
               {shown.map((r) => {
                 const src = thumbUrl(r)
                 return (
-                  <tr key={r.ig_media_id} className="border-b last:border-0 hover:bg-muted/30">
+                  <tr key={r.ig_media_id} className={cn('border-b last:border-0 hover:bg-muted/30', sel.kevin.includes(r.ig_media_id) && 'bg-muted/50')}>
+                    <td className="pl-4">
+                      <input
+                        type="checkbox"
+                        aria-label="Select for AI analysis"
+                        className="size-4 accent-primary"
+                        checked={sel.kevin.includes(r.ig_media_id)}
+                        onChange={() => sel.toggle('kevin', r.ig_media_id)}
+                      />
+                    </td>
                     <td className="px-4 py-2">
                       <a href={r.permalink ?? '#'} target="_blank" rel="noreferrer" className="group flex items-center gap-3">
                         <div className="h-14 w-8 shrink-0 overflow-hidden rounded bg-muted">{src && <img src={src} alt="" loading="lazy" className="size-full object-cover" />}</div>
@@ -226,6 +239,7 @@ export default function Insights() {
           </table>
         </div>
       </Card>
+      <AnalyzeBar />
     </div>
   )
 }

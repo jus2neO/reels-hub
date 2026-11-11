@@ -1,6 +1,6 @@
 # Reels Hub
 
-Private web app for Kevin Qian's (K-Ching) Instagram, used by the DOBO team: publish Reels / Trial Reels (post now only, no scheduling in v1), Kevin's insights, creator research + outlier finder (Apify), and an AI analyst (Claude API).
+Private web app for Kevin Qian's (K-Ching) Instagram, used by the DOBO team: publish Reels / Trial Reels (post now only, no scheduling in v1), Kevin's insights, creator research + outlier finder (Apify), and an AI analyst (a prompt builder: it assembles Kevin's knowledge base + selected reels into one prompt the team pastes into their own ChatGPT or Claude subscription; no AI API, no `ai-analyze` function).
 
 **The full spec is in `BUILD_GUIDE.md`. Read it before starting any phase.** Work phase by phase (1 → 4). Before writing code for a phase, list the files you'll create and ask for any keys needed. After each phase, run that phase's acceptance checks and report the results.
 
@@ -16,7 +16,6 @@ Supabase
  ├─ Edge Functions (hold ALL secrets, call external APIs)
  │    ├─ Instagram API (graph.instagram.com)
  │    ├─ Apify API
- │    ├─ Claude API
  │    └─ Cloudflare R2 (presigned upload/download URLs)
  └─ pg_cron (finish in-progress publishes, daily sync, token refresh, weekly rescrape)
 

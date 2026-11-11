@@ -5,9 +5,24 @@ A private web app for Kevin Qian's (K-Ching) Instagram, used by the DOBO team. I
 1. **Publish** Reels and Trial Reels to Kevin's account (post now; no scheduling in v1)
 2. **Insights** for Kevin's own content
 3. **Creator research + outlier finder** for other accounts in the niche (via Apify)
-4. **AI analyst** (Claude API) that knows Kevin's business, bio, courses, and voice
+4. **AI analyst** that knows Kevin's business, bio, courses, and voice
 
 Single-account use only (Kevin). The Meta app stays in **Development mode**, so no App Review is needed.
+
+---
+
+## As built (November 2026): where the app differs from this guide
+
+The sections below are the original plan. These changes were made while building; **the code and `CLAUDE.md` are the source of truth**.
+
+- **Repo / URL:** `jus2neO/reels-hub` → `https://jus2neo.github.io/reels-hub/` (Vite `base: '/reels-hub/'`).
+- **Login:** 6-digit email code (`verifyOtp`) instead of clicking a magic link; links get spent by email scanners and break PKCE across browsers. Custom SMTP (Gmail) is required; Supabase's built-in sender allows ~2 emails/hour.
+- **Instagram:** new Meta apps can't use "API setup with Instagram login". Kevin's token comes from **API setup with Unified login** (needs a Business portfolio + a login configuration). It's a system-user token (`EAA…`) on **graph.facebook.com** that **never expires**, so `ig-refresh-token` skips it. `_shared/ig.ts` picks the host from the token type. Insights need `instagram_manage_insights` added to the configuration.
+- **Thumbnails:** stored in **Supabase Storage** (public bucket `thumbs`, column `thumbnail_path`), not R2. R2 holds only videos waiting to be published.
+- **Rescrape:** weekly (Mondays), not daily, to stay within Apify's free monthly credit.
+- **Cron auth:** every cron job sends `x-cron-secret` from Vault (`cron_secret`), matching the `CRON_SECRET` function secret. All functions have the gateway JWT check off and authorize themselves.
+- **AI analyst:** no AI API and no `ai-analyze` function. The AI page builds one prompt (system rules + active `knowledge_docs` + selected reels + question) and copies it for the team to paste into their own **ChatGPT or Claude subscription**. `ai_threads` is unused.
+- **Supabase CLI v3:** remote commands need `--remote=<ref>`, and changes to production need `--yes`.
 
 ---
 
