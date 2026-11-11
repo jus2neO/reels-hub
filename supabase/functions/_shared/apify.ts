@@ -5,6 +5,8 @@ const APIFY = 'https://api.apify.com/v2'
 export const ACTORS = {
   profiles: 'apify~instagram-profile-scraper',
   reels: 'apify~instagram-reel-scraper',
+  discover: 'apify~instagram-hashtag-scraper', // reels under hashtags / keywords → candidate creators
+  candidate_profiles: 'apify~instagram-profile-scraper', // follower counts for discovered candidates
 } as const
 export type ScrapeKind = keyof typeof ACTORS
 

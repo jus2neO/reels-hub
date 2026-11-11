@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { must, startScrape, type Creator, type CreatorStats, type ScrapeRun } from '@/lib/api'
 import { fmtAgo, fmtNum, parseTags, parseUsernames } from '@/lib/format'
 import { supabase } from '@/lib/supabase'
+import { Discover } from '@/components/Discover'
 
 export default function Creators() {
   const qc = useQueryClient()
@@ -142,6 +143,11 @@ export default function Creators() {
       {notice && <p className="text-sm text-muted-foreground">{notice}</p>}
       {error && <p className="text-sm text-destructive">{error.message}</p>}
 
+      <Discover
+        trackedUsernames={new Set((creators.data ?? []).map((c) => c.username))}
+        searching={(runs.data ?? []).some((r) => r.status === 'running' && (r.kind === 'discover' || r.kind === 'candidate_profiles'))}
+      />
+
       {(runs.data?.length ?? 0) > 0 && (
         <div className="flex flex-col gap-2">
           <h2 className="text-sm font-medium">Recent scrapes</h2>
@@ -151,9 +157,9 @@ export default function Creators() {
                 {r.status === 'running' && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
                 {r.status === 'succeeded' && <CheckCircle2 className="size-3.5 text-emerald-600" />}
                 {r.status === 'failed' && <XCircle className="size-3.5 text-destructive" />}
-                <span className="font-medium">{r.kind}</span>
+                <span className="font-medium">{r.kind === 'candidate_profiles' ? 'follower lookup' : r.kind}</span>
                 <span className="text-muted-foreground">
-                  {r.usernames.length} acct · {r.status === 'succeeded' ? `${r.item_count ?? 0} items · ` : ''}
+                  {r.kind === 'discover' ? r.terms.join(', ') : `${r.usernames.length} acct`} · {r.status === 'succeeded' ? `${r.item_count ?? 0} items · ` : ''}
                   {fmtAgo(r.created_at)}
                 </span>
                 {r.status === 'failed' && <span className="max-w-64 truncate text-destructive">{r.error}</span>}

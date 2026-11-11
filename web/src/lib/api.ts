@@ -23,7 +23,8 @@ export type CreatorStats = {
 
 export type ScrapeRun = {
   id: string
-  kind: 'profiles' | 'reels'
+  kind: 'profiles' | 'reels' | 'discover' | 'candidate_profiles'
+  terms: string[]
   usernames: string[]
   status: 'running' | 'succeeded' | 'failed'
   item_count: number | null

@@ -3,9 +3,12 @@
 // URL: /functions/v1/apify-webhook?secret=<APIFY_WEBHOOK_SECRET>&kind=profiles|reels
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.119.0'
 import { adminClient, requireEnv, safeEqual } from '../_shared/admin.ts'
-import { datasetItems } from '../_shared/apify.ts'
+import { datasetItems, startRun } from '../_shared/apify.ts'
 
 type Item = Record<string, any>
+type Kind = 'profiles' | 'reels' | 'discover' | 'candidate_profiles'
+
+const CANDIDATE_PROFILE_BATCH = 40 // profiles to look up per discovery search (cost control)
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void }
 
@@ -14,8 +17,8 @@ Deno.serve(async (req) => {
   const secret = url.searchParams.get('secret') ?? ''
   if (!safeEqual(secret, requireEnv('APIFY_WEBHOOK_SECRET'))) return new Response('Forbidden', { status: 403 })
 
-  const kind = url.searchParams.get('kind')
-  if (kind !== 'profiles' && kind !== 'reels') return new Response('Bad kind', { status: 400 })
+  const kind = url.searchParams.get('kind') as Kind
+  if (!['profiles', 'reels', 'discover', 'candidate_profiles'].includes(kind)) return new Response('Bad kind', { status: 400 })
 
   const payload = await req.json().catch(() => null)
   const run = payload?.resource
@@ -25,21 +28,31 @@ Deno.serve(async (req) => {
   return new Response('ok')
 })
 
-async function handle(kind: 'profiles' | 'reels', eventType: string, run: Item) {
+async function handle(kind: Kind, eventType: string, run: Item) {
   const admin = adminClient()
-  const { data: runRow } = await admin.from('scrape_runs').select('usernames').eq('apify_run_id', run.id).maybeSingle()
+  const { data: runRow } = await admin.from('scrape_runs').select('usernames, terms').eq('apify_run_id', run.id).maybeSingle()
   const usernames: string[] = runRow?.usernames ?? []
+  const terms: string[] = runRow?.terms ?? []
 
   if (eventType !== 'ACTOR.RUN.SUCCEEDED') {
     const error = `${kind} scrape ${String(run.status ?? eventType).toLowerCase()}: ${run.statusMessage ?? 'no details'}`
     await finishRun(admin, run.id, 'failed', null, error)
-    if (usernames.length) await admin.from('creators').update({ scrape_error: error }).in('username', usernames)
+    if (usernames.length && (kind === 'profiles' || kind === 'reels')) {
+      await admin.from('creators').update({ scrape_error: error }).in('username', usernames)
+    }
     return
   }
 
   try {
     const items = await datasetItems<Item>(run.defaultDatasetId)
-    const count = kind === 'profiles' ? await saveProfiles(admin, items) : await saveReels(admin, items)
+    const count =
+      kind === 'profiles'
+        ? await saveProfiles(admin, items)
+        : kind === 'reels'
+          ? await saveReels(admin, items)
+          : kind === 'discover'
+            ? await saveDiscovery(admin, items, terms)
+            : await saveCandidateProfiles(admin, items)
     await finishRun(admin, run.id, 'succeeded', count, null)
   } catch (e) {
     await finishRun(admin, run.id, 'failed', null, e instanceof Error ? e.message : String(e))
@@ -152,6 +165,70 @@ async function saveReels(admin: SupabaseClient, items: Item[]): Promise<number> 
     .update({ last_scraped_at: new Date().toISOString() })
     .in('id', [...new Set(rows.map((r) => r.creator_id))])
   return rows.length
+}
+
+/** Group discovered reels by owner and merge them into creator_candidates, then look up follower counts. */
+async function saveDiscovery(admin: SupabaseClient, items: Item[], terms: string[]): Promise<number> {
+  type Row = { username: string; full_name: string | null; hits: number; best_views: number; best_reel_url: string | null; best_caption: string | null }
+  const byOwner = new Map<string, Row>()
+  for (const it of items) {
+    if (it.error || !it.ownerUsername) continue
+    const username = String(it.ownerUsername).toLowerCase()
+    const views = Number(it.videoPlayCount ?? it.videoViewCount ?? 0)
+    const cur = byOwner.get(username) ?? { username, full_name: it.ownerFullName ?? null, hits: 0, best_views: -1, best_reel_url: null, best_caption: null }
+    cur.hits++
+    if (views > cur.best_views) {
+      cur.best_views = views
+      cur.best_reel_url = it.url ?? (it.shortCode ? 'https://www.instagram.com/reel/' + it.shortCode + '/' : null)
+      cur.best_caption = it.caption ? String(it.caption).slice(0, 500) : null
+    }
+    byOwner.set(username, cur)
+  }
+  const rows = [...byOwner.values()]
+  if (rows.length === 0) return 0
+  const { error } = await admin.rpc('merge_creator_candidates', { rows, terms })
+  if (error) throw error
+
+  // Follower counts for new candidates not looked up yet (most frequent first), skipping tracked creators.
+  const { data: tracked } = await admin.from('creators').select('username').in('username', rows.map((r) => r.username))
+  const trackedSet = new Set((tracked ?? []).map((t) => t.username))
+  const { data: need } = await admin
+    .from('creator_candidates')
+    .select('username')
+    .in('username', rows.map((r) => r.username).filter((u) => !trackedSet.has(u)))
+    .is('profile_scraped_at', null)
+    .order('hits', { ascending: false })
+    .limit(CANDIDATE_PROFILE_BATCH)
+  const lookup = (need ?? []).map((n) => n.username)
+  if (lookup.length) {
+    const runId = await startRun('candidate_profiles', { usernames: lookup })
+    await admin.from('scrape_runs').insert({ apify_run_id: runId, kind: 'candidate_profiles', usernames: lookup, terms })
+  }
+  return rows.length
+}
+
+async function saveCandidateProfiles(admin: SupabaseClient, items: Item[]): Promise<number> {
+  let saved = 0
+  const now = new Date().toISOString()
+  for (const it of items) {
+    const username = usernameFromItem(it)
+    if (!username) continue
+    const patch = it.error
+      ? { profile_scraped_at: now }
+      : {
+          full_name: it.fullName ?? null,
+          followers: it.followersCount ?? null,
+          posts_count: it.postsCount ?? null,
+          is_verified: it.verified ?? null,
+          bio: it.biography ?? null,
+          profile_scraped_at: now,
+          updated_at: now,
+        }
+    const { error } = await admin.from('creator_candidates').update(patch).eq('username', username)
+    if (error) throw error
+    if (!it.error) saved++
+  }
+  return saved
 }
 
 async function pool<T>(items: T[], size: number, fn: (t: T) => Promise<void>) {
