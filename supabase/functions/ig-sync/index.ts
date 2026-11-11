@@ -1,6 +1,7 @@
 // Pulls Kevin's account + media insights from the Instagram API.
-// Called daily by pg_cron and by the "Sync now" button. First run backfills; later runs refresh
-// the last 90 days of Reels and the last 3 days of account insights.
+// Called daily by pg_cron and by the "Sync now" button. Works within a time budget so it never hits
+// the Edge Function limit: each run first fills in Reels from the last year that have never been
+// synced (newest first), then refreshes Reels from the last 90 days. Repeated runs finish a backfill.
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.119.0'
 import { adminClient } from '../_shared/admin.ts'
 import { authorize } from '../_shared/auth.ts'
@@ -19,7 +20,11 @@ const REEL_METRICS = [
   'ig_reels_video_view_total_time',
 ]
 const ACCOUNT_METRICS = ['views', 'reach', 'accounts_engaged', 'total_interactions']
-const REFRESH_DAYS = 90
+const REFRESH_DAYS = 90 // re-pull insights for Reels this recent
+const BACKFILL_DAYS = 365 // never-synced Reels older than this are skipped
+const STALE_MS = 12 * 3600_000 // don't refresh a Reel synced within the last 12h
+const BUDGET_MS = 100_000 // stop starting new work after this (function limit is ~150s)
+const PARALLEL = 4
 const DAY = 86400_000
 
 Deno.serve(async (req) => {
@@ -27,6 +32,8 @@ Deno.serve(async (req) => {
   const admin = adminClient()
   if (!(await authorize(req, admin))) return json(req, { error: 'Unauthorized' }, 401)
 
+  const startedAt = Date.now()
+  const outOfTime = () => Date.now() - startedAt > BUDGET_MS
   try {
     const tok = await getToken(admin)
     const t = tok.access_token
@@ -43,9 +50,9 @@ Deno.serve(async (req) => {
     // 2. Account insights per day.
     const { count: dayCount } = await admin.from('kevin_account_daily').select('day', { count: 'exact', head: true })
     const accountDays = (dayCount ?? 0) === 0 ? 30 : 3
-    for (let i = accountDays; i >= 1; i--) {
-      if (state.noInsights) break
-      const start = startOfUtcDay(Date.now() - i * DAY)
+    const dayStarts = Array.from({ length: accountDays }, (_, k) => startOfUtcDay(Date.now() - (k + 1) * DAY))
+    await inBatches(dayStarts, PARALLEL, async (start) => {
+      if (state.noInsights) return
       const values = await metricsWithFallback(
         (metric) =>
           igGet(
@@ -57,7 +64,7 @@ Deno.serve(async (req) => {
         warnings,
         state,
       )
-      if (state.noInsights) break
+      if (state.noInsights) return
       await admin.from('kevin_account_daily').upsert(
         {
           day: new Date(start).toISOString().slice(0, 10),
@@ -69,36 +76,50 @@ Deno.serve(async (req) => {
         },
         { onConflict: 'day' },
       )
-    }
+    })
     await admin
       .from('kevin_account_daily')
       .upsert({ day: new Date().toISOString().slice(0, 10), followers: me.followers_count, updated_at: new Date().toISOString() }, { onConflict: 'day' })
 
-    // 3. Media list (newest first). Backfill everything on first run, else stop past the refresh window.
-    const { count: mediaCount } = await admin.from('kevin_media').select('ig_media_id', { count: 'exact', head: true })
-    const backfill = (mediaCount ?? 0) < 5
-    const cutoff = Date.now() - REFRESH_DAYS * DAY
+    // 3. Media list (newest first), back to BACKFILL_DAYS. Listing is cheap; insights are the slow part.
+    const backfillCutoff = Date.now() - BACKFILL_DAYS * DAY
+    const refreshCutoff = Date.now() - REFRESH_DAYS * DAY
     const media: Record<string, any>[] = []
     let next: string | undefined = `/${tok.ig_user_id}/media`
     let params: Record<string, string> = {
       fields: 'id,caption,media_type,media_product_type,permalink,thumbnail_url,media_url,timestamp,like_count,comments_count',
       limit: '50',
     }
-    while (next && media.length < 500) {
+    while (next && media.length < 1000) {
       const page = await igGet(next, params, t)
       media.push(...page.data)
       const last = page.data[page.data.length - 1]
-      if (!backfill && last && new Date(last.timestamp).getTime() < cutoff) break
+      if (last && new Date(last.timestamp).getTime() < backfillCutoff) break
       next = page.paging?.next
       params = {} // the next URL already carries the query
     }
 
-    // 4. Insights per Reel within the window (all Reels on backfill).
-    const reels = media.filter((m) => m.media_product_type === 'REELS' && (backfill || new Date(m.timestamp).getTime() >= cutoff))
-    const { data: existing } = await admin.from('kevin_media').select('ig_media_id, thumbnail_path').in('ig_media_id', reels.map((m) => m.id))
-    const havePath = new Map((existing ?? []).map((e) => [e.ig_media_id, e.thumbnail_path]))
+    // 4. Pick the work: never-synced Reels first (newest first), then stale recent Reels.
+    const reels = media.filter((m) => m.media_product_type === 'REELS' && new Date(m.timestamp).getTime() >= backfillCutoff)
+    const existing: { ig_media_id: string; thumbnail_path: string | null; insights_updated_at: string | null }[] = []
+    for (let i = 0; i < reels.length; i += 200) {
+      const { data } = await admin
+        .from('kevin_media')
+        .select('ig_media_id, thumbnail_path, insights_updated_at')
+        .in('ig_media_id', reels.slice(i, i + 200).map((m) => m.id))
+      existing.push(...(data ?? []))
+    }
+    const known = new Map(existing.map((e) => [e.ig_media_id, e]))
+    const synced = (id: string) => (known.get(id)?.insights_updated_at ? new Date(known.get(id)!.insights_updated_at!).getTime() : 0)
+    const neverSynced = reels.filter((m) => !synced(m.id))
+    const stale = reels.filter(
+      (m) => synced(m.id) && new Date(m.timestamp).getTime() >= refreshCutoff && Date.now() - synced(m.id) > STALE_MS,
+    )
+    const todo = [...neverSynced, ...stale]
+    let done = 0
 
-    for (const m of reels) {
+    await inBatches(todo, PARALLEL, async (m) => {
+      if (outOfTime()) return
       const insights = state.noInsights
         ? null
         : await metricsWithFallback((metric) => igGet(`/${m.id}/insights`, { metric }, t), REEL_METRICS, warnings, state)
@@ -122,12 +143,15 @@ Deno.serve(async (req) => {
         { onConflict: 'ig_media_id' },
       )
       if (error) throw error
-      if (!havePath.get(m.id) && m.thumbnail_url) await copyThumb(admin, m.id, m.thumbnail_url)
-    }
+      if (!known.get(m.id)?.thumbnail_path && m.thumbnail_url) await copyThumb(admin, m.id, m.thumbnail_url)
+      done++
+    })
 
     return json(req, {
       followers: me.followers_count,
-      reelsSynced: reels.length,
+      reelsSynced: done,
+      reelsRemaining: todo.length - done,
+      complete: done === todo.length,
       accountDays,
       insightsAvailable: !state.noInsights,
       warnings: [...new Set(warnings)].slice(0, 10),
@@ -139,6 +163,11 @@ Deno.serve(async (req) => {
 })
 
 const startOfUtcDay = (ms: number) => Math.floor(ms / DAY) * DAY
+
+/** Run fn over items, `size` at a time. */
+async function inBatches<T>(items: T[], size: number, fn: (t: T) => Promise<void>) {
+  for (let i = 0; i < items.length; i += size) await Promise.all(items.slice(i, i + size).map(fn))
+}
 
 /**
  * Ask for all metrics in one call; if Meta rejects it (metrics get renamed or retired), ask one by one
