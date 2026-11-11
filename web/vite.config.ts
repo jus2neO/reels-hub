@@ -3,9 +3,9 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
-// GitHub Pages serves the app from /IG_Hub_MET/
+// GitHub Pages serves the app from /reels-hub/
 export default defineConfig({
-  base: '/IG_Hub_MET/',
+  base: '/reels-hub/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { '@': path.resolve(import.meta.dirname, './src') },

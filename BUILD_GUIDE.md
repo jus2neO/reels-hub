@@ -89,7 +89,7 @@ Cloudflare R2 — temporary video storage (Meta pulls the video from a URL)
 ### Repo layout
 
 ```
-IG_Hub_MET/
+reels-hub/
 ├─ BUILD_GUIDE.md
 ├─ CLAUDE.md
 ├─ web/                     # React app → GitHub Pages
@@ -98,7 +98,7 @@ IG_Hub_MET/
 │  │  ├─ components/
 │  │  ├─ lib/supabase.ts
 │  │  └─ lib/api.ts         # wrappers around supabase.functions.invoke()
-│  └─ vite.config.ts        # base: '/IG_Hub_MET/'
+│  └─ vite.config.ts        # base: '/reels-hub/'
 ├─ supabase/
 │  ├─ migrations/           # SQL schema
 │  └─ functions/
@@ -120,7 +120,7 @@ IG_Hub_MET/
 
 | Service | What to get | Where it goes |
 |---|---|---|
-| GitHub | Repo `IG_Hub_MET` (github.com/jus2neO/IG_Hub_MET), Pages enabled (Source: GitHub Actions) | — |
+| GitHub | Repo `reels-hub` (github.com/jus2neO/reels-hub), Pages enabled (Source: GitHub Actions) | — |
 | Supabase | Project URL, anon key, service role key | URL + anon → GitHub Actions secrets for the build. Service role → never leaves Supabase |
 | Cloudflare R2 | Account ID, bucket name, R2 API token (Access Key ID + Secret) | Supabase function secrets |
 | Meta | Instagram App ID, Instagram App Secret, Kevin's long-lived token, Kevin's IG user ID | Secrets + `ig_tokens` table |
@@ -565,7 +565,7 @@ Rules:
 3. Login page (magic link, PKCE flow), protected routes, layout with sidebar.
 4. GitHub Actions deploy to Pages.
 
-**Acceptance:** site loads at `https://jus2neo.github.io/IG_Hub_MET/`, invited user can log in by clicking the magic link (lands logged in, not on a blank route), uninvited email can't, page refresh doesn't 404, and an anon-key request to `reel_outliers` / `creators` returns no rows.
+**Acceptance:** site loads at `https://jus2neo.github.io/reels-hub/`, invited user can log in by clicking the magic link (lands logged in, not on a blank route), uninvited email can't, page refresh doesn't 404, and an anon-key request to `reel_outliers` / `creators` returns no rows.
 
 ### Phase 2: Creator research + outliers (no Meta needed)
 1. Apify functions (`apify-start`, `apify-webhook`), test run, map fields, thumbnail copy to R2.
@@ -625,7 +625,7 @@ jobs:
       - uses: actions/deploy-pages@v4
 ```
 
-In Supabase **Auth → URL Configuration**, set Site URL and Redirect URLs to `https://jus2neo.github.io/IG_Hub_MET/`.
+In Supabase **Auth → URL Configuration**, set Site URL and Redirect URLs to `https://jus2neo.github.io/reels-hub/`.
 
 ---
 

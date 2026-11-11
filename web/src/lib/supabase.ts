@@ -19,5 +19,5 @@ export const supabase = createClient(url, anonKey, {
   },
 })
 
-/** Where magic links send the user back to (the app root, e.g. https://jus2neo.github.io/IG_Hub_MET/). */
+/** Where magic links send the user back to (the app root, e.g. https://jus2neo.github.io/reels-hub/). */
 export const appRootUrl = () => window.location.origin + import.meta.env.BASE_URL

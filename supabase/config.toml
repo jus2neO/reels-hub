@@ -3,7 +3,7 @@
 # https://supabase.com/docs/guides/local-development/cli/config
 # A string used to distinguish different Supabase projects on the same host. Defaults to the
 # working directory name when running `supabase init`.
-project_id = "IG_Hub_MET"
+project_id = "reels-hub"
 
 [api]
 enabled = true
@@ -158,11 +158,11 @@ max_indexes = 5
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-site_url = "http://localhost:5173/IG_Hub_MET/"
+site_url = "http://localhost:5173/reels-hub/"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["http://localhost:5173/IG_Hub_MET/", "https://jus2neo.github.io/IG_Hub_MET/"]
+additional_redirect_urls = ["http://localhost:5173/reels-hub/", "https://jus2neo.github.io/reels-hub/"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.

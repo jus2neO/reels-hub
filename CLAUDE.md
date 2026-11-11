@@ -23,7 +23,7 @@ Supabase
 Cloudflare R2 — temporary video storage (Meta pulls the video from a URL) + thumbnail copies
 ```
 
-Repo layout: `web/` (Vite + React + TS → GitHub Pages, `base: '/IG_Hub_MET/'`), `supabase/migrations/`, `supabase/functions/` (one function per job, shared code in `_shared/`), `.github/workflows/deploy.yml`.
+Repo layout: `web/` (Vite + React + TS → GitHub Pages, `base: '/reels-hub/'`), `supabase/migrations/`, `supabase/functions/` (one function per job, shared code in `_shared/`), `.github/workflows/deploy.yml`.
 
 ## Rules
 
