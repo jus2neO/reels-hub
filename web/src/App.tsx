@@ -4,7 +4,9 @@ import { AppLayout } from '@/components/AppLayout'
 import { RequireAuth } from '@/components/RequireAuth'
 import { AuthProvider } from '@/lib/auth'
 import Login from '@/pages/Login'
-import { AI, Creators, Dashboard, Insights, Outliers, Publish } from '@/pages'
+import Creators from '@/pages/Creators'
+import Outliers from '@/pages/Outliers'
+import { AI, Dashboard, Insights, Publish } from '@/pages'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 60_000, refetchOnWindowFocus: false } },
