@@ -5,7 +5,7 @@ import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.119.0'
 import { adminClient } from '../_shared/admin.ts'
 import { authorize } from '../_shared/auth.ts'
 import { corsHeaders, json } from '../_shared/cors.ts'
-import { getToken, igGet } from '../_shared/ig.ts'
+import { getToken, igGet, isPermissionError } from '../_shared/ig.ts'
 
 const REEL_METRICS = [
   'views',
@@ -31,9 +31,11 @@ Deno.serve(async (req) => {
     const tok = await getToken(admin)
     const t = tok.access_token
     const warnings: string[] = []
+    // Set when the token lacks instagram_manage_insights: skip insight calls, keep existing numbers.
+    const state = { noInsights: false }
 
     // 1. Account basics → creators (benchmark row) + today's follower count.
-    const me = await igGet('/me', { fields: 'user_id,username,followers_count,media_count' }, t)
+    const me = await igGet(`/${tok.ig_user_id}`, { fields: 'username,followers_count,media_count' }, t)
     await admin
       .from('creators')
       .upsert({ username: String(me.username).toLowerCase(), followers: me.followers_count, is_benchmark: true }, { onConflict: 'username' })
@@ -42,6 +44,7 @@ Deno.serve(async (req) => {
     const { count: dayCount } = await admin.from('kevin_account_daily').select('day', { count: 'exact', head: true })
     const accountDays = (dayCount ?? 0) === 0 ? 30 : 3
     for (let i = accountDays; i >= 1; i--) {
+      if (state.noInsights) break
       const start = startOfUtcDay(Date.now() - i * DAY)
       const values = await metricsWithFallback(
         (metric) =>
@@ -52,7 +55,9 @@ Deno.serve(async (req) => {
           ),
         ACCOUNT_METRICS,
         warnings,
+        state,
       )
+      if (state.noInsights) break
       await admin.from('kevin_account_daily').upsert(
         {
           day: new Date(start).toISOString().slice(0, 10),
@@ -94,7 +99,14 @@ Deno.serve(async (req) => {
     const havePath = new Map((existing ?? []).map((e) => [e.ig_media_id, e.thumbnail_path]))
 
     for (const m of reels) {
-      const insights = await metricsWithFallback((metric) => igGet(`/${m.id}/insights`, { metric }, t), REEL_METRICS, warnings)
+      const insights = state.noInsights
+        ? null
+        : await metricsWithFallback((metric) => igGet(`/${m.id}/insights`, { metric }, t), REEL_METRICS, warnings, state)
+      // Without the insights permission we still get likes/comments from the media list.
+      const insightFields = {
+        insights: { ...(insights ?? {}), like_count: m.like_count, comments_count: m.comments_count },
+        insights_updated_at: new Date().toISOString(),
+      }
       // Note: is_trial and duration_sec are not overwritten (set when published through Reels Hub).
       const { error } = await admin.from('kevin_media').upsert(
         {
@@ -105,8 +117,7 @@ Deno.serve(async (req) => {
           permalink: m.permalink,
           thumbnail_url: m.thumbnail_url ?? null,
           posted_at: m.timestamp,
-          insights: { ...insights, like_count: m.like_count, comments_count: m.comments_count },
-          insights_updated_at: new Date().toISOString(),
+          ...insightFields,
         },
         { onConflict: 'ig_media_id' },
       )
@@ -118,6 +129,7 @@ Deno.serve(async (req) => {
       followers: me.followers_count,
       reelsSynced: reels.length,
       accountDays,
+      insightsAvailable: !state.noInsights,
       warnings: [...new Set(warnings)].slice(0, 10),
     })
   } catch (e) {
@@ -136,6 +148,7 @@ async function metricsWithFallback(
   fetchMetrics: (metric: string) => Promise<any>,
   metrics: string[],
   warnings: string[],
+  state: { noInsights: boolean },
 ): Promise<Record<string, number>> {
   const read = (body: any) => {
     const out: Record<string, number> = {}
@@ -144,7 +157,12 @@ async function metricsWithFallback(
   }
   try {
     return read(await fetchMetrics(metrics.join(',')))
-  } catch {
+  } catch (e) {
+    if (isPermissionError(e)) {
+      state.noInsights = true
+      warnings.push('Insights skipped: the Instagram token is missing the instagram_manage_insights permission.')
+      return {}
+    }
     const out: Record<string, number> = {}
     for (const metric of metrics) {
       try {

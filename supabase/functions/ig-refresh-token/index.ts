@@ -2,7 +2,7 @@
 import { adminClient } from '../_shared/admin.ts'
 import { authorize } from '../_shared/auth.ts'
 import { json } from '../_shared/cors.ts'
-import { getToken } from '../_shared/ig.ts'
+import { getToken, isSystemUserToken } from '../_shared/ig.ts'
 
 Deno.serve(async (req) => {
   const admin = adminClient()
@@ -10,6 +10,8 @@ Deno.serve(async (req) => {
 
   try {
     const tok = await getToken(admin)
+    // System-user tokens (Unified login) never expire, so there is nothing to refresh.
+    if (isSystemUserToken(tok.access_token)) return json(req, { ok: true, skipped: 'system-user token does not expire' })
     const res = await fetch(
       `https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${encodeURIComponent(tok.access_token)}`,
     )

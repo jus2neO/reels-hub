@@ -2,7 +2,16 @@ import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.119.0'
 
 /** The only place the Instagram API version lives. */
 export const IG_API_VERSION = 'v26.0'
-const BASE = `https://graph.instagram.com/${IG_API_VERSION}`
+
+/**
+ * Meta now issues two kinds of tokens for Instagram:
+ * - Unified login / system-user tokens (start with "EAA") → graph.facebook.com, never expire
+ * - Instagram login tokens (start with "IG") → graph.instagram.com, ~60 days, refreshable
+ * The endpoints we use (/{ig-user-id}/media, media_publish, insights) are the same on both.
+ */
+export const isSystemUserToken = (token: string) => token.startsWith('EAA')
+const baseFor = (token: string) =>
+  `https://${isSystemUserToken(token) ? 'graph.facebook.com' : 'graph.instagram.com'}/${IG_API_VERSION}`
 
 export type IgToken = { ig_user_id: string; access_token: string; expires_at: string | null }
 
@@ -23,7 +32,7 @@ async function call(method: 'GET' | 'POST', path: string, params: Record<string,
   const qs = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) if (v !== undefined) qs.set(k, v)
   qs.set('access_token', token)
-  const url = path.startsWith('http') ? path : `${BASE}${path}`
+  const url = path.startsWith('http') ? path : `${baseFor(token)}${path}`
   const res =
     method === 'GET'
       ? await fetch(`${url}${url.includes('?') ? '&' : '?'}${qs}`)
@@ -36,5 +45,8 @@ async function call(method: 'GET' | 'POST', path: string, params: Record<string,
   return body
 }
 
-export const igGet = (path: string, params: Record<string, string | undefined>, token: string) => call('GET', path, params, token)
+/** Meta error code 10 / 200-series = the token lacks a permission (e.g. instagram_manage_insights). */
+export const isPermissionError = (e: unknown) => e instanceof IgError && (e.code === 10 || (e.code ?? 0) >= 200 && (e.code ?? 0) < 300)
+
+export const igGet =(path: string, params: Record<string, string | undefined>, token: string) => call('GET', path, params, token)
 export const igPost = (path: string, params: Record<string, string | undefined>, token: string) => call('POST', path, params, token)
