@@ -56,6 +56,18 @@ export default function Publish() {
   const [cover, setCover] = useState<{ file: File; url: string; key: string | null; progress: number } | null>(null)
   const [caption, setCaption] = useState('')
   const [thumbOffset, setThumbOffset] = useState(0)
+  const [frameUrl, setFrameUrl] = useState<string | null>(null)
+
+  /** Use the video's current frame as the cover: remember its time and draw a small preview. */
+  function captureFrame(v: HTMLVideoElement) {
+    setThumbOffset(v.currentTime)
+    if (!v.videoWidth) return
+    const canvas = document.createElement('canvas')
+    canvas.width = 180
+    canvas.height = Math.round((180 * v.videoHeight) / v.videoWidth)
+    canvas.getContext('2d')?.drawImage(v, 0, 0, canvas.width, canvas.height)
+    setFrameUrl(canvas.toDataURL('image/jpeg', 0.8))
+  }
   const [shareToFeed, setShareToFeed] = useState(true)
   const [isTrial, setIsTrial] = useState(false)
   const [strategy, setStrategy] = useState<'MANUAL' | 'SS_PERFORMANCE'>('MANUAL')
@@ -100,6 +112,7 @@ export default function Publish() {
     const base: Upload = { file, url, duration: meta.duration || null, width: meta.width, height: meta.height, key: null, progress: 0, error: lengthError }
     setVideo(base)
     setThumbOffset(0)
+    setFrameUrl(null)
     if (lengthError) return
     try {
       const key = await uploadToR2(file, (progress) => setVideo((v) => (v && v.file === file ? { ...v, progress } : v)))
@@ -193,7 +206,10 @@ export default function Publish() {
                 controls
                 playsInline
                 className="aspect-[9/16] w-full object-contain"
-                onSeeked={(e) => !cover && setThumbOffset(e.currentTarget.currentTime)}
+                // Pausing or scrubbing picks the cover frame (unless a custom cover image is uploaded).
+                onPause={(e) => captureFrame(e.currentTarget)}
+                onSeeked={(e) => e.currentTarget.paused && captureFrame(e.currentTarget)}
+                onLoadedData={(e) => captureFrame(e.currentTarget)}
               />
               <Button size="icon" variant="secondary" className="absolute top-2 right-2" onClick={() => setVideo(null)} title="Remove video">
                 <X className="size-4" />
@@ -249,14 +265,39 @@ export default function Publish() {
                   </Button>
                 </div>
               ) : (
-                <div className="flex flex-wrap items-center gap-3 text-sm">
-                  <span className="text-muted-foreground">
-                    Frame at <span className="font-medium text-foreground tabular-nums">{thumbOffset.toFixed(1)}s</span> (pause the preview on the frame you want)
-                  </span>
-                  <Button variant="outline" size="sm" onClick={() => coverInput.current?.click()}>
-                    <ImagePlus className="size-4" />
-                    Upload cover image
-                  </Button>
+                <div className="flex items-start gap-3">
+                  <div className="h-24 w-[54px] shrink-0 overflow-hidden rounded border bg-muted">
+                    {frameUrl && <img src={frameUrl} alt="Cover frame" className="size-full object-cover" />}
+                  </div>
+                  <div className="flex min-w-0 flex-1 flex-col gap-2 text-sm">
+                    <span className="text-muted-foreground">
+                      Cover frame at <span className="font-medium text-foreground tabular-nums">{thumbOffset.toFixed(1)}s</span>. Pause the video on the frame you
+                      want, or drag:
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={video?.duration ?? 0}
+                      step={0.1}
+                      value={thumbOffset}
+                      disabled={!video?.duration}
+                      aria-label="Cover frame time"
+                      className="w-full accent-primary"
+                      onChange={(e) => {
+                        const t = Number(e.target.value)
+                        setThumbOffset(t)
+                        const v = previewRef.current
+                        if (v) {
+                          v.pause()
+                          v.currentTime = t // onSeeked captures the frame preview
+                        }
+                      }}
+                    />
+                    <Button variant="outline" size="sm" className="self-start" onClick={() => coverInput.current?.click()}>
+                      <ImagePlus className="size-4" />
+                      Or upload a cover image
+                    </Button>
+                  </div>
                 </div>
               )}
               <input ref={coverInput} type="file" accept="image/jpeg,image/png" className="hidden" onChange={(e) => pickCover(e.target.files?.[0])} />
