@@ -431,3 +431,18 @@ verify_jwt = false
 
 [functions.apify-webhook]
 verify_jwt = false
+
+[functions.r2-upload-url]
+verify_jwt = false
+
+[functions.ig-publish]
+verify_jwt = false
+
+[functions.ig-publish-queue]
+verify_jwt = false
+
+[functions.ig-sync]
+verify_jwt = false
+
+[functions.ig-refresh-token]
+verify_jwt = false

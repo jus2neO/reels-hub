@@ -6,7 +6,10 @@ import { AuthProvider } from '@/lib/auth'
 import Login from '@/pages/Login'
 import Creators from '@/pages/Creators'
 import Outliers from '@/pages/Outliers'
-import { AI, Dashboard, Insights, Publish } from '@/pages'
+import Dashboard from '@/pages/Dashboard'
+import Insights from '@/pages/Insights'
+import Publish from '@/pages/Publish'
+import { AI } from '@/pages'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 60_000, refetchOnWindowFocus: false } },
